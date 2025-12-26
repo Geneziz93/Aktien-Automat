@@ -11,7 +11,9 @@ MEINE_AKTIEN = {
     'MSFT': 'Microsoft',
     'AMZN': 'Amazon',
     'BTC-USD': 'Bitcoin',
-    'VOW3.DE': 'VW (Volkswagen)'
+    'VOW3.DE': 'VW (Volkswagen)',
+    'ALV.DE': 'Allianz',
+    'NVDA': 'Nvidia'
 }
 
 def telegram_senden(nachricht):
@@ -22,73 +24,123 @@ def telegram_senden(nachricht):
         print("Fehler: Token oder Chat ID fehlen.")
         return
 
+    # Telegram hat ein Limit für Nachrichtenlänge, daher splitten wir bei Bedarf
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    daten = {'chat_id': chat_id, 'text': nachricht, 'parse_mode': 'Markdown'}
+    
+    # Nachricht senden (Markdown deaktiviert für Links, falls diese Sonderzeichen enthalten)
+    # Wir nutzen HTML für fettgedruckten Text und Links
+    daten = {'chat_id': chat_id, 'text': nachricht, 'parse_mode': 'HTML', 'disable_web_page_preview': True}
     requests.post(url, data=daten)
+
+def hol_nachrichten(ticker_obj):
+    """Holt die aktuellste News-Schlagzeile"""
+    try:
+        news = ticker_obj.news
+        if news and len(news) > 0:
+            titel = news[0].get('title', 'Keine Überschrift')
+            link = news[0].get('link', '')
+            return f"<a href='{link}'>{titel}</a>"
+    except:
+        pass
+    return "Keine aktuellen News gefunden."
+
+def format_number(val, suffix=""):
+    """Hilfsfunktion um N/A zu vermeiden"""
+    if val is None or val == "N/A":
+        return "-"
+    try:
+        return f"{round(float(val), 2)}{suffix}"
+    except:
+        return "-"
 
 def strategie_check(symbol, name):
     try:
-        # 1. Daten laden (STABILERE METHODE)
         ticker = yf.Ticker(symbol)
-        df = ticker.history(period="1y")
         
-        # Prüfung: Ist die Tabelle leer?
-        if df.empty:
-            print(f"Keine Daten für {symbol} erhalten.")
-            return None
-
-        preis = round(float(df['Close'].iloc[-1]), 2)
+        # 1. Historische Daten für Charttechnik (Preis, RSI, SMA)
+        hist = ticker.history(period="1y")
+        if hist.empty: return None
         
-        # 2. Berechnungen
-        sma_50 = df['Close'].rolling(window=50).mean().iloc[-1]
-        sma_200 = df['Close'].rolling(window=200).mean().iloc[-1]
+        preis = round(float(hist['Close'].iloc[-1]), 2)
         
-        delta = df['Close'].diff()
+        # --- TECHNISCHE ANALYSE (Charttechnik) ---
+        sma_50 = hist['Close'].rolling(window=50).mean().iloc[-1]
+        sma_200 = hist['Close'].rolling(window=200).mean().iloc[-1]
+        
+        delta = hist['Close'].diff()
         gewinn = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         verlust = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gewinn / verlust
         rsi = 100 - (100 / (1 + rs))
         rsi_wert = round(float(rsi.iloc[-1]), 1)
 
-        # 3. Ampel-Logik
+        # Ampel Signal (Technisch)
         signal = "⚪ HALTEN"
-        grund = "Neutral"
+        if rsi_wert < 30: signal = "🟢 KAUFEN (Überverkauft)"
+        elif sma_50 > sma_200 and rsi_wert < 50: signal = "🟢 KAUFEN (Trend)"
+        if rsi_wert > 70: signal = "🔴 VERKAUFEN (Überkauft)"
+        elif sma_50 < sma_200: signal = "🔴 VERKAUFEN (Abwärtstrend)"
 
-        # KAUFEN
-        if rsi_wert < 30:
-            signal = "🟢 KAUFEN"
-            grund = "Stark unterbewertet"
-        elif sma_50 > sma_200 and rsi_wert < 50:
-            signal = "🟢 KAUFEN"
-            grund = "Aufwärtstrend + Guter Preis"
+        # --- FUNDAMENTALE ANALYSE (Kennzahlen) ---
+        # info Dictionary abrufen (Kann langsam sein)
+        info = ticker.info
+        
+        # Daten sicher extrahieren (mit Fallback auf None)
+        kgv = info.get('trailingPE') # Kurs-Gewinn
+        kbv = info.get('priceToBook') # Kurs-Buchwert
+        kuv = info.get('priceToSalesTrailing12Months') # Kurs-Umsatz
+        div_yield = info.get('dividendYield') # Dividende (kommt als 0.05 für 5%)
+        roe = info.get('returnOnEquity') # Eigenkapitalrendite
+        peg = info.get('pegRatio') # PEG als Ersatz für DCF (Wachstum vs Bewertung)
+        eps = info.get('trailingEps') # Gewinn pro Aktie
 
-        # VERKAUFEN
-        if rsi_wert > 70:
-            signal = "🔴 VERKAUFEN"
-            grund = "Überhitzt (zu teuer)"
-        elif sma_50 < sma_200 and rsi_wert > 50:
-            signal = "🔴 VERKAUFEN"
-            grund = "Abwärtstrend"
+        # Formatierung der Kennzahlen
+        div_text = f"{round(div_yield * 100, 2)}%" if div_yield else "0%"
+        roe_text = f"{round(roe * 100, 2)}%" if roe else "-"
+        
+        # Bewertungskommentar (Fundamental)
+        bewertung = "Fair/Neutral"
+        if kgv and kgv < 15 and (peg and peg < 1): bewertung = "🟢 Günstig bewertet"
+        if kgv and kgv > 50: bewertung = "🔴 Teuer (Wachstum eingepreist?)"
+        if symbol == "BTC-USD": bewertung = "Crypto (Keine Fundamentaldaten)"
 
-        return f"🏢 *{name}*: {preis} €\n👉 {signal}\n_{grund}_ (RSI: {rsi_wert})\n"
+        # --- NACHRICHTEN ---
+        news_headline = hol_nachrichten(ticker)
+
+        # --- ZUSAMMENBAU DER NACHRICHT ---
+        text = f"<b>🏢 {name} ({symbol})</b>: {preis} €\n"
+        text += f"Signal: {signal} (RSI: {rsi_wert})\n"
+        text += f"<i>Bewertung: {bewertung}</i>\n\n"
+        
+        # Fundamentaldaten Block (Nur wenn keine Crypto)
+        if symbol != "BTC-USD":
+            text += f"📊 <b>Kennzahlen:</b>\n"
+            text += f"• KGV: {format_number(kgv)} | KBV: {format_number(kbv)}\n"
+            text += f"• KUV: {format_number(kuv)} | PEG: {format_number(peg)}\n"
+            text += f"• Div: {div_text} | ROE: {roe_text}\n"
+            text += f"• EPS: {format_number(eps)} €\n"
+        
+        text += f"\n📰 <b>News:</b> {news_headline}\n"
+        text += "------------------------------\n"
+        
+        return text
 
     except Exception as e:
-        # Hier drucken wir den WAHREN Fehler ins Protokoll für dich
-        print(f"FEHLER bei {name} ({symbol}): {e}")
-        return f"⚠️ Fehler bei {name}: Daten konnten nicht berechnet werden.\n"
+        print(f"Fehler bei {name}: {e}")
+        return None
 
 if __name__ == "__main__":
     datum = datetime.now().strftime('%d.%m.%Y')
-    bericht = f"📊 **Marktbericht {datum}** 📊\n\n"
+    bericht = f"📊 <b>Marktbericht {datum}</b> 📊\n\n"
     
-    erfolgreich = False
+    erfolg = False
     for symbol, name in MEINE_AKTIEN.items():
-        ergebnis = strategie_check(symbol, name)
-        if ergebnis:
-            bericht += ergebnis + "\n"
-            if "Fehler" not in ergebnis:
-                erfolgreich = True
-    
-    # Nur senden, wenn zumindest eine Aktie geklappt hat oder Fehler berichtet werden sollen
-    if erfolgreich or len(MEINE_AKTIEN) > 0:
+        block = strategie_check(symbol, name)
+        if block:
+            bericht += block
+            erfolg = True
+            
+    if erfolg:
         telegram_senden(bericht)
+    else:
+        print("Keine Daten konnten abgerufen werden.")
