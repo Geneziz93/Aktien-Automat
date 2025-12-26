@@ -46,36 +46,35 @@ def format_number(val, suffix=""):
     except:
         return "-"
 
-# --- DAS FARB-SYSTEM (Vereinfacht: Ohne Hellgrün) ---
-# 🟢 = Gut | 🔵 = Neutral | 🟠 = Schlecht/Teuer | 🔴 = Sehr schlecht
+# --- TEXT-BEWERTUNGSSYSTEM (Keine Emojis) ---
 
 def bewerte_kgv(kgv):
     if kgv is None: return ""
-    if kgv < 20: return "🟢"      # Günstig (Zusammengefasst)
-    if kgv < 30: return "🔵"      # Normal
-    if kgv < 50: return "🟠"      # Teuer
-    return "🔴"                   # Sehr teuer
+    if kgv < 20: return "<b>(GÜNSTIG)</b>"
+    if kgv < 30: return "(NORMAL)"
+    if kgv < 50: return "(TEUER)"
+    return "<b>(! SEHR TEUER !)</b>"
 
 def bewerte_rsi(rsi):
     if rsi is None: return ""
-    if rsi < 40: return "🟢"      # Kaufzone (Erweitert)
-    if rsi < 60: return "🔵"      # Neutral
-    if rsi < 75: return "🟠"      # Eher teuer
-    return "🔴"                   # Überkauft
+    if rsi < 40: return "<b>(KAUFZONE)</b>"
+    if rsi < 60: return "(NEUTRAL)"
+    if rsi < 75: return "(TEUER)"
+    return "<b>(! ÜBERHITZT !)</b>"
 
 def bewerte_peg(peg):
     if peg is None: return ""
-    if peg < 1.0: return "🟢"     # Gut
-    if peg < 2.0: return "🔵"     # Neutral
-    if peg < 3.0: return "🟠"     # Teuer
-    return "🔴"                   # Sehr teuer
+    if peg < 1.0: return "<b>(GUT)</b>"
+    if peg < 2.0: return "(NEUTRAL)"
+    if peg < 3.0: return "(TEUER)"
+    return "<b>(! SEHR TEUER !)</b>"
 
 def bewerte_dividende(div):
     if div is None: return ""
-    if div > 0.03: return "🟢"    # Gut (über 3%)
-    if div > 0.015: return "🔵"   # Okay
-    if div > 0: return "🟠"       # Wenig
-    return "🔴"                   # Keine
+    if div > 0.03: return "<b>(TOP)</b>"
+    if div > 0.015: return "(OK)"
+    if div > 0: return "(WENIG)"
+    return "(KEINE)"
 
 def strategie_check(symbol, name):
     try:
@@ -85,9 +84,11 @@ def strategie_check(symbol, name):
         
         preis = round(float(hist['Close'].iloc[-1]), 2)
         
-        # --- TECHNISCHE DATEN ---
+        # --- TECHNIK ---
         sma_50 = hist['Close'].rolling(window=50).mean().iloc[-1]
         sma_200 = hist['Close'].rolling(window=200).mean().iloc[-1]
+        
+        # RSI Berechnung
         delta = hist['Close'].diff()
         gewinn = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         verlust = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -95,14 +96,25 @@ def strategie_check(symbol, name):
         rsi = 100 - (100 / (1 + rs))
         rsi_wert = round(float(rsi.iloc[-1]), 1)
 
-        # Ampel Signal (Gesamt)
-        signal = "⚪ HALTEN"
-        if rsi_wert < 30: signal = "🟢 KAUFEN (Schnäppchen)"
-        elif sma_50 > sma_200 and rsi_wert < 50: signal = "🟢 KAUFEN (Trend)"
-        if rsi_wert > 70: signal = "🔴 VERKAUFEN (Überhitzt)"
-        elif sma_50 < sma_200: signal = "🔴 VERKAUFEN (Abwärtstrend)"
+        # Ampel Signal (Textbasiert)
+        signal = "HALTEN"
+        signal_icon = "⚪" # Ein einziges Symbol für die schnelle Übersicht oben lassen wir, oder?
+        
+        if rsi_wert < 30: 
+            signal = "KAUFEN (Schnäppchen)"
+            signal_icon = "🟢"
+        elif sma_50 > sma_200 and rsi_wert < 50: 
+            signal = "KAUFEN (Trend)"
+            signal_icon = "🟢"
+            
+        if rsi_wert > 70: 
+            signal = "VERKAUFEN (Überhitzt)"
+            signal_icon = "🔴"
+        elif sma_50 < sma_200: 
+            signal = "VERKAUFEN (Abwärtstrend)"
+            signal_icon = "🔴"
 
-        # --- FUNDAMENTALE DATEN ---
+        # --- FUNDAMENTALS ---
         info = ticker.info
         kgv = info.get('trailingPE')
         kbv = info.get('priceToBook')
@@ -111,31 +123,32 @@ def strategie_check(symbol, name):
         peg = info.get('pegRatio')
         eps = info.get('trailingEps')
 
-        # Formatierung
         div_text = f"{round(div_yield * 100, 2)}%" if div_yield else "0%"
         
-        # Farben holen
-        c_rsi = bewerte_rsi(rsi_wert)
-        c_kgv = bewerte_kgv(kgv)
-        c_peg = bewerte_peg(peg)
-        c_div = bewerte_dividende(div_yield)
+        # Text-Bewertungen holen
+        t_rsi = bewerte_rsi(rsi_wert)
+        t_kgv = bewerte_kgv(kgv)
+        t_peg = bewerte_peg(peg)
+        t_div = bewerte_dividende(div_yield)
         
-        # --- ZUSAMMENBAU ---
-        text = f"<b>🏢 {name} ({symbol})</b>: {preis} €\n"
-        text += f"Signal: {signal}\n"
+        # --- OUTPUT DESIGN ---
+        text = f"<b>🏢 {name} ({symbol})</b>\n"
+        text += f"Preis: {preis} €\n"
+        text += f"Signal: <b>{signal}</b>\n" 
         
         if symbol == "BTC-USD":
-            text += f"RSI: {rsi_wert} {c_rsi}\n"
+            text += f"RSI: {rsi_wert} {t_rsi}\n"
         else:
-            text += f"📊 <b>Kennzahlen Check:</b>\n"
-            text += f"• RSI: {rsi_wert} {c_rsi}\n"
-            text += f"• KGV: {format_number(kgv)} {c_kgv} | PEG: {format_number(peg)} {c_peg}\n"
-            text += f"• Div: {div_text} {c_div} | KBV: {format_number(kbv)}\n"
-            text += f"• KUV: {format_number(kuv)} | EPS: {format_number(eps)} €\n"
+            text += f"------------------------------\n"
+            text += f"RSI: {rsi_wert} {t_rsi}\n"
+            text += f"KGV: {format_number(kgv)} {t_kgv}\n"
+            text += f"PEG: {format_number(peg)} {t_peg}\n"
+            text += f"Div: {div_text} {t_div}\n"
+            text += f"KBV: {format_number(kbv)} | KUV: {format_number(kuv)}\n"
         
         news_headline = hol_nachrichten(ticker)
         text += f"\n📰 <b>News:</b> {news_headline}\n"
-        text += "------------------------------\n"
+        text += "==============================\n"
         
         return text
 
@@ -145,8 +158,8 @@ def strategie_check(symbol, name):
 
 if __name__ == "__main__":
     datum = datetime.now().strftime('%d.%m.%Y')
-    bericht = f"📊 <b>Farb-Analyse {datum}</b> 📊\n\n"
-    bericht += "Legende: 🟢=Gut 🔵=Neutral 🟠=Vorsicht 🔴=Schlecht\n\n"
+    bericht = f"📊 <b>Marktbericht {datum}</b> 📊\n"
+    bericht += "<i>(Text-Modus ohne Emojis)</i>\n\n"
     
     erfolg = False
     for symbol, name in MEINE_AKTIEN.items():
