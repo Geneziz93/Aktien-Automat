@@ -1,0 +1,23 @@
+name: Aktien-Bot
+
+on:
+  schedule:
+    # Jeden Montag bis Freitag um ca. 09:00 Uhr deutscher Zeit
+    - cron: '0 8 * * 1-5'
+  workflow_dispatch: # Damit du es auch per Hand testen kannst
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Installiere Pakete
+        run: pip install yfinance pandas requests
+      - name: Starte Analyse
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python main.py
