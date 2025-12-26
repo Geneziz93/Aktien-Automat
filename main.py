@@ -4,36 +4,62 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-# --- DEIN AKTIEN-PORTFOLIO ---
+# --- DEIN NEUES HIGH-GROWTH PORTFOLIO ---
 MEINE_AKTIEN = [
-    {"symbol": "AAPL",    "name": "Apple",           "sector": "📱 Technologie"},
-    {"symbol": "MSFT",    "name": "Microsoft",       "sector": "📱 Technologie"},
-    {"symbol": "NVDA",    "name": "Nvidia",          "sector": "📱 Technologie"},
-    
-    {"symbol": "TSLA",    "name": "Tesla",           "sector": "🚗 Konsum & Auto"},
-    {"symbol": "AMZN",    "name": "Amazon",          "sector": "🚗 Konsum & Auto"},
-    {"symbol": "VOW3.DE", "name": "VW",              "sector": "🚗 Konsum & Auto"},
-    
-    {"symbol": "ALV.DE",  "name": "Allianz",         "sector": "💰 Finanzen"},
-    
-    {"symbol": "BTC-USD", "name": "Bitcoin",         "sector": "🪙 Krypto-Assets"}
+    # 🚀 High Growth (KI & Tech)
+    {"symbol": "NVDA",    "name": "Nvidia",             "sector": "🚀 High Growth (KI & Tech)"},
+    {"symbol": "MSFT",    "name": "Microsoft",          "sector": "🚀 High Growth (KI & Tech)"},
+    {"symbol": "PLTR",    "name": "Palantir",           "sector": "🚀 High Growth (KI & Tech)"},
+    {"symbol": "ASML",    "name": "ASML",               "sector": "🚀 High Growth (KI & Tech)"},
+    {"symbol": "PANW",    "name": "Palo Alto Networks", "sector": "🚀 High Growth (KI & Tech)"},
+    {"symbol": "TSM",     "name": "TSMC",               "sector": "🚀 High Growth (KI & Tech)"},
+
+    # 🌌 Space Economy
+    {"symbol": "RKLB",    "name": "Rocket Lab USA",     "sector": "🌌 Space Economy"},
+    {"symbol": "NOC",     "name": "Northrop Grumman",   "sector": "🌌 Space Economy"},
+
+    # 💊 Gesundheit & Demografie
+    {"symbol": "NVO",     "name": "Novo Nordisk",       "sector": "💊 Gesundheit & Demografie"},
+    {"symbol": "ISRG",    "name": "Intuitive Surgical", "sector": "💊 Gesundheit & Demografie"},
+    {"symbol": "UNH",     "name": "UnitedHealth Grp",   "sector": "💊 Gesundheit & Demografie"},
+
+    # 🛍️ Konsum & Dienstleistungen
+    {"symbol": "AMZN",    "name": "Amazon",             "sector": "🛍️ Konsum & Services"},
+    {"symbol": "RACE",    "name": "Ferrari",            "sector": "🛍️ Konsum & Services"},
+    {"symbol": "COST",    "name": "Costco Wholesale",   "sector": "🛍️ Konsum & Services"},
+    {"symbol": "GOOGL",   "name": "Alphabet (Google)",  "sector": "🛍️ Konsum & Services"},
+    {"symbol": "V",       "name": "Visa",               "sector": "🛍️ Konsum & Services"},
+
+    # 🏭 Industrie & Infrastruktur
+    {"symbol": "RHM.DE",  "name": "Rheinmetall",        "sector": "🏭 Industrie & Infra"},
+    {"symbol": "SU.PA",   "name": "Schneider Electric", "sector": "🏭 Industrie & Infra"},
+    {"symbol": "LIN",     "name": "Linde",              "sector": "🏭 Industrie & Infra"},
+    {"symbol": "FCX",     "name": "Freeport-McMoRan",   "sector": "🏭 Industrie & Infra"},
+
+    # ⚡ Versorger & Substanz
+    {"symbol": "NEE",     "name": "NextEra Energy",     "sector": "⚡ Versorger & Substanz"},
+    {"symbol": "EQIX",    "name": "Equinix (REIT)",     "sector": "⚡ Versorger & Substanz"},
+    {"symbol": "BLK",     "name": "BlackRock",          "sector": "⚡ Versorger & Substanz"},
+
+    # 🪙 Krypto
+    {"symbol": "BTC-USD", "name": "Bitcoin",            "sector": "🪙 Krypto"},
+    {"symbol": "SOL-USD", "name": "Solana",             "sector": "🪙 Krypto"}
 ]
 
 def get_usd_to_eur_rate():
     """Holt den aktuellen Umrechnungskurs von Dollar zu Euro"""
     try:
-        # Wir holen uns das Paar EURUSD=X (Wie viel Dollar ist 1 Euro wert?)
-        # Beispiel: Kurs 1.05 bedeutet 1€ = 1.05$
+        # Wir holen uns das Paar EURUSD=X (1 Euro = x Dollar)
         ticker = yf.Ticker("EURUSD=X")
         hist = ticker.history(period="1d")
         if not hist.empty:
             rate = float(hist['Close'].iloc[-1])
-            return 1 / rate # Umkehrung: Wie viel Euro ist 1 Dollar wert?
+            return 1 / rate # Umkehrung: 1 Dollar = x Euro
     except:
         pass
-    return 0.95 # Fallback (Notfallwert), falls API streikt
+    return 0.95 # Fallback
 
-# Den Kurs holen wir nur 1x am Anfang, um Zeit zu sparen
+# Den Kurs holen wir nur 1x am Anfang
 AKTUELLER_USD_EUR_KURS = get_usd_to_eur_rate()
 
 def telegram_senden(nachricht):
@@ -55,8 +81,7 @@ def strategie_check(stock_data):
     try:
         ticker = yf.Ticker(symbol)
         
-        # Währung prüfen (USD oder EUR?)
-        # fast_info ist schneller als info
+        # Währung prüfen
         try:
             currency = ticker.fast_info['currency']
         except:
@@ -69,10 +94,9 @@ def strategie_check(stock_data):
         
         # --- WÄHRUNGSUMRECHNUNG ---
         if currency == "USD":
-            # Wenn Aktie in Dollar ist, rechnen wir in Euro um
             preis_in_euro = raw_price * AKTUELLER_USD_EUR_KURS
         else:
-            # Wenn Aktie schon in EUR ist (z.B. VW), lassen wir es so
+            # Falls Aktie schon in EUR (z.B. Rheinmetall)
             preis_in_euro = raw_price
 
         preis_anzeige = round(preis_in_euro, 2)
@@ -91,17 +115,19 @@ def strategie_check(stock_data):
         # --- SIGNAL LOGIK ---
         signal = "⚪ Halten" 
         
+        # Kaufen
         if rsi_wert < 30: 
             signal = "🟢 <b>KAUFEN</b> (Billig)"
         elif sma_50 > sma_200 and rsi_wert < 50: 
             signal = "🟢 <b>KAUFEN</b> (Trend)"
             
+        # Verkaufen
         if rsi_wert > 70: 
             signal = "🔴 <b>VERKAUFEN</b> (Teuer)"
         elif sma_50 < sma_200: 
             signal = "🔴 <b>VERKAUFEN</b> (Abwärtstrend)"
 
-        # --- OUTPUT ---
+        # --- KOMPAKTE AUSGABE ---
         text = f"<b>{name}</b>: {preis_anzeige} €\n"
         text += f"{signal}\n\n" 
         
@@ -113,11 +139,11 @@ def strategie_check(stock_data):
 
 if __name__ == "__main__":
     datum = datetime.now().strftime('%d.%m')
-    bericht = f"📊 <b>Portfolio {datum}</b>\n\n"
+    bericht = f"📊 <b>Future Depot {datum}</b>\n\n"
     
     sektor_ergebnisse = {}
     
-    print(f"Starte Analyse (Wechselkurs genutz: {round(AKTUELLER_USD_EUR_KURS, 2)})...")
+    print(f"Starte Analyse (Wechselkurs: {round(AKTUELLER_USD_EUR_KURS, 2)})...")
     
     for aktie in MEINE_AKTIEN:
         ergebnis = strategie_check(aktie)
@@ -128,12 +154,19 @@ if __name__ == "__main__":
             sektor_ergebnisse[sektor] += ergebnis
             print(f"✅ {aktie['name']} fertig.")
 
-    # Bericht zusammenbauen
+    # Bericht sortiert zusammenbauen
+    # Damit die Reihenfolge genau wie in deiner Liste ist, nutzen wir die Liste zum Sortieren der Keys
+    reihenfolge = []
+    for a in MEINE_AKTIEN:
+        if a["sector"] not in reihenfolge:
+            reihenfolge.append(a["sector"])
+
     has_content = False
-    for sektor, inhalt in sektor_ergebnisse.items():
-        bericht += f"<b>--- {sektor} ---</b>\n"
-        bericht += inhalt
-        has_content = True
+    for sektor in reihenfolge:
+        if sektor in sektor_ergebnisse:
+            bericht += f"<b>--- {sektor} ---</b>\n"
+            bericht += sektor_ergebnisse[sektor]
+            has_content = True
 
     if has_content:
         telegram_senden(bericht)
