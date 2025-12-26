@@ -4,7 +4,7 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-# --- DEIN AKTIEN-PORTFOLIO MIT SEKTOREN ---
+# --- DEIN AKTIEN-PORTFOLIO ---
 MEINE_AKTIEN = [
     {"symbol": "AAPL",    "name": "Apple",           "sector": "📱 Technologie"},
     {"symbol": "MSFT",    "name": "Microsoft",       "sector": "📱 Technologie"},
@@ -18,6 +18,23 @@ MEINE_AKTIEN = [
     
     {"symbol": "BTC-USD", "name": "Bitcoin",         "sector": "🪙 Krypto-Assets"}
 ]
+
+def get_usd_to_eur_rate():
+    """Holt den aktuellen Umrechnungskurs von Dollar zu Euro"""
+    try:
+        # Wir holen uns das Paar EURUSD=X (Wie viel Dollar ist 1 Euro wert?)
+        # Beispiel: Kurs 1.05 bedeutet 1€ = 1.05$
+        ticker = yf.Ticker("EURUSD=X")
+        hist = ticker.history(period="1d")
+        if not hist.empty:
+            rate = float(hist['Close'].iloc[-1])
+            return 1 / rate # Umkehrung: Wie viel Euro ist 1 Dollar wert?
+    except:
+        pass
+    return 0.95 # Fallback (Notfallwert), falls API streikt
+
+# Den Kurs holen wir nur 1x am Anfang, um Zeit zu sparen
+AKTUELLER_USD_EUR_KURS = get_usd_to_eur_rate()
 
 def telegram_senden(nachricht):
     token = os.environ.get('TELEGRAM_TOKEN')
@@ -37,12 +54,30 @@ def strategie_check(stock_data):
     
     try:
         ticker = yf.Ticker(symbol)
+        
+        # Währung prüfen (USD oder EUR?)
+        # fast_info ist schneller als info
+        try:
+            currency = ticker.fast_info['currency']
+        except:
+            currency = "USD" # Annahme bei Fehler
+
         hist = ticker.history(period="1y")
         if hist.empty: return None
         
-        preis = round(float(hist['Close'].iloc[-1]), 2)
+        raw_price = float(hist['Close'].iloc[-1])
         
-        # --- BERECHNUNG (Hintergrund) ---
+        # --- WÄHRUNGSUMRECHNUNG ---
+        if currency == "USD":
+            # Wenn Aktie in Dollar ist, rechnen wir in Euro um
+            preis_in_euro = raw_price * AKTUELLER_USD_EUR_KURS
+        else:
+            # Wenn Aktie schon in EUR ist (z.B. VW), lassen wir es so
+            preis_in_euro = raw_price
+
+        preis_anzeige = round(preis_in_euro, 2)
+        
+        # --- BERECHNUNG ---
         sma_50 = hist['Close'].rolling(window=50).mean().iloc[-1]
         sma_200 = hist['Close'].rolling(window=200).mean().iloc[-1]
         
@@ -56,21 +91,18 @@ def strategie_check(stock_data):
         # --- SIGNAL LOGIK ---
         signal = "⚪ Halten" 
         
-        # Kauf-Signale
         if rsi_wert < 30: 
             signal = "🟢 <b>KAUFEN</b> (Billig)"
         elif sma_50 > sma_200 and rsi_wert < 50: 
             signal = "🟢 <b>KAUFEN</b> (Trend)"
             
-        # Verkauf-Signale
         if rsi_wert > 70: 
             signal = "🔴 <b>VERKAUFEN</b> (Teuer)"
         elif sma_50 < sma_200: 
             signal = "🔴 <b>VERKAUFEN</b> (Abwärtstrend)"
 
-        # --- KOMPAKTE AUSGABE ---
-        # Kein Finger, keine News, nur Fakten.
-        text = f"<b>{name}</b>: {preis} €\n"
+        # --- OUTPUT ---
+        text = f"<b>{name}</b>: {preis_anzeige} €\n"
         text += f"{signal}\n\n" 
         
         return text
@@ -85,7 +117,7 @@ if __name__ == "__main__":
     
     sektor_ergebnisse = {}
     
-    print("Starte Analyse...")
+    print(f"Starte Analyse (Wechselkurs genutz: {round(AKTUELLER_USD_EUR_KURS, 2)})...")
     
     for aktie in MEINE_AKTIEN:
         ergebnis = strategie_check(aktie)
