@@ -1,11 +1,10 @@
 import yfinance as yf
 import os
 import requests
+import pandas as pd
 from datetime import datetime
 
 # --- DEIN AKTIEN-TELEFONBUCH ---
-# Links: Das Kürzel für den Computer
-# Rechts: Der Name für dich (in Anführungszeichen)
 MEINE_AKTIEN = {
     'AAPL': 'Apple',
     'TSLA': 'Tesla',
@@ -19,19 +18,28 @@ def telegram_senden(nachricht):
     token = os.environ.get('TELEGRAM_TOKEN')
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     
+    if not token or not chat_id:
+        print("Fehler: Token oder Chat ID fehlen.")
+        return
+
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     daten = {'chat_id': chat_id, 'text': nachricht, 'parse_mode': 'Markdown'}
     requests.post(url, data=daten)
 
 def strategie_check(symbol, name):
     try:
-        # Daten laden
-        df = yf.download(symbol, period="1y", interval="1d", progress=False)
-        if len(df) < 200: return None
+        # 1. Daten laden (STABILERE METHODE)
+        ticker = yf.Ticker(symbol)
+        df = ticker.history(period="1y")
+        
+        # Prüfung: Ist die Tabelle leer?
+        if df.empty:
+            print(f"Keine Daten für {symbol} erhalten.")
+            return None
 
         preis = round(float(df['Close'].iloc[-1]), 2)
         
-        # --- BERECHNUNGEN ---
+        # 2. Berechnungen
         sma_50 = df['Close'].rolling(window=50).mean().iloc[-1]
         sma_200 = df['Close'].rolling(window=200).mean().iloc[-1]
         
@@ -42,7 +50,7 @@ def strategie_check(symbol, name):
         rsi = 100 - (100 / (1 + rs))
         rsi_wert = round(float(rsi.iloc[-1]), 1)
 
-        # --- AMPEL SYSTEM ---
+        # 3. Ampel-Logik
         signal = "⚪ HALTEN"
         grund = "Neutral"
 
@@ -62,20 +70,25 @@ def strategie_check(symbol, name):
             signal = "🔴 VERKAUFEN"
             grund = "Abwärtstrend"
 
-        # Hier nutzen wir jetzt DEINEN Namen
-        return f"🏢 *{name}* ({symbol}): {preis} €\n👉 {signal}\n_{grund}_ (RSI: {rsi_wert})\n"
+        return f"🏢 *{name}*: {preis} €\n👉 {signal}\n_{grund}_ (RSI: {rsi_wert})\n"
 
     except Exception as e:
-        return f"⚠️ Fehler bei {name}: Daten nicht verfügbar.\n"
+        # Hier drucken wir den WAHREN Fehler ins Protokoll für dich
+        print(f"FEHLER bei {name} ({symbol}): {e}")
+        return f"⚠️ Fehler bei {name}: Daten konnten nicht berechnet werden.\n"
 
 if __name__ == "__main__":
     datum = datetime.now().strftime('%d.%m.%Y')
     bericht = f"📊 **Marktbericht {datum}** 📊\n\n"
     
-    # Wir gehen durch das Telefonbuch (Kürzel UND Name)
+    erfolgreich = False
     for symbol, name in MEINE_AKTIEN.items():
         ergebnis = strategie_check(symbol, name)
         if ergebnis:
             bericht += ergebnis + "\n"
+            if "Fehler" not in ergebnis:
+                erfolgreich = True
     
-    telegram_senden(bericht)
+    # Nur senden, wenn zumindest eine Aktie geklappt hat oder Fehler berichtet werden sollen
+    if erfolgreich or len(MEINE_AKTIEN) > 0:
+        telegram_senden(bericht)
