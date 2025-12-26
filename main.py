@@ -4,17 +4,22 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-# --- DEINE AKTIEN ---
-MEINE_AKTIEN = {
-    'AAPL': 'Apple',
-    'TSLA': 'Tesla',
-    'MSFT': 'Microsoft',
-    'AMZN': 'Amazon',
-    'BTC-USD': 'Bitcoin',
-    'VOW3.DE': 'VW (Volkswagen)',
-    'ALV.DE': 'Allianz',
-    'NVDA': 'Nvidia'
-}
+# --- DEIN AKTIEN-PORTFOLIO MIT SEKTOREN ---
+# Wir nutzen jetzt eine Liste, damit wir Sektoren zuordnen können.
+# GICS Sektoren (vereinfacht): Technologie, Zykl. Konsum, Finanzen, Industrie, Krypto etc.
+MEINE_AKTIEN = [
+    {"symbol": "AAPL",    "name": "Apple",           "sector": "📱 Technologie"},
+    {"symbol": "MSFT",    "name": "Microsoft",       "sector": "📱 Technologie"},
+    {"symbol": "NVDA",    "name": "Nvidia",          "sector": "📱 Technologie"},
+    
+    {"symbol": "TSLA",    "name": "Tesla",           "sector": "🚗 Konsum & Auto"},
+    {"symbol": "AMZN",    "name": "Amazon",          "sector": "🚗 Konsum & Auto"},
+    {"symbol": "VOW3.DE", "name": "VW",              "sector": "🚗 Konsum & Auto"},
+    
+    {"symbol": "ALV.DE",  "name": "Allianz",         "sector": "💰 Finanzen"},
+    
+    {"symbol": "BTC-USD", "name": "Bitcoin",         "sector": "🪙 Krypto-Assets"}
+]
 
 def telegram_senden(nachricht):
     token = os.environ.get('TELEGRAM_TOKEN')
@@ -25,7 +30,6 @@ def telegram_senden(nachricht):
         return
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    # disable_web_page_preview=True sorgt dafür, dass die Nachricht klein bleibt (keine großen Vorschaubilder der Links)
     daten = {'chat_id': chat_id, 'text': nachricht, 'parse_mode': 'HTML', 'disable_web_page_preview': True}
     requests.post(url, data=daten)
 
@@ -33,15 +37,18 @@ def hol_nachrichten(ticker_obj):
     try:
         news = ticker_obj.news
         if news and len(news) > 0:
+            # Wir nehmen die aktuellste News
             titel = news[0].get('title', 'Info')
             link = news[0].get('link', '')
-            # Der Link ist jetzt hinter dem Wort "News" oder der Headline versteckt
             return f"<a href='{link}'>{titel}</a>"
     except:
         pass
-    return "Keine News"
+    return None # WICHTIG: Gibt None zurück, wenn nichts gefunden wurde
 
-def strategie_check(symbol, name):
+def strategie_check(stock_data):
+    symbol = stock_data["symbol"]
+    name = stock_data["name"]
+    
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period="1y")
@@ -49,7 +56,7 @@ def strategie_check(symbol, name):
         
         preis = round(float(hist['Close'].iloc[-1]), 2)
         
-        # --- BERECHNUNG (Läuft unsichtbar im Hintergrund) ---
+        # --- BERECHNUNG (Hintergrund) ---
         sma_50 = hist['Close'].rolling(window=50).mean().iloc[-1]
         sma_200 = hist['Close'].rolling(window=200).mean().iloc[-1]
         
@@ -60,10 +67,9 @@ def strategie_check(symbol, name):
         rsi = 100 - (100 / (1 + rs))
         rsi_wert = round(float(rsi.iloc[-1]), 1)
 
-        # --- SIGNAL GEBUNG ---
+        # --- SIGNAL ---
         signal = "⚪ Halten" 
         
-        # Logik
         if rsi_wert < 30: 
             signal = "🟢 <b>KAUFEN</b> (Billig)"
         elif sma_50 > sma_200 and rsi_wert < 50: 
@@ -74,18 +80,16 @@ def strategie_check(symbol, name):
         elif sma_50 < sma_200: 
             signal = "🔴 <b>VERKAUFEN</b> (Abwärtstrend)"
 
-        # News holen
-        news_link = hol_nachrichten(ticker)
-
-        # --- KOMPAKTE AUSGABE ---
-        # Nur 3 Zeilen pro Aktie:
-        # 1. Name & Preis
-        # 2. Signal
-        # 3. News Link
-        
+        # --- OUTPUT ---
         text = f"<b>{name}</b>: {preis} €\n"
         text += f"👉 {signal}\n"
-        text += f"📰 {news_link}\n\n" 
+        
+        # News nur anzeigen, wenn vorhanden
+        news_link = hol_nachrichten(ticker)
+        if news_link:
+            text += f"📰 {news_link}\n"
+        
+        text += "\n" # Leerzeile für Abstand
         
         return text
 
@@ -95,15 +99,31 @@ def strategie_check(symbol, name):
 
 if __name__ == "__main__":
     datum = datetime.now().strftime('%d.%m')
-    # Header noch minimalistischer
-    bericht = f"📊 <b>Markt {datum}</b>\n\n"
+    bericht = f"📊 <b>Portfolio {datum}</b>\n\n"
     
-    erfolg = False
-    for symbol, name in MEINE_AKTIEN.items():
-        block = strategie_check(symbol, name)
-        if block:
-            bericht += block
-            erfolg = True
-            
-    if erfolg:
+    # Ergebnisse sammeln und nach Sektoren ordnen
+    sektor_ergebnisse = {}
+    
+    print("Starte Analyse...")
+    
+    for aktie in MEINE_AKTIEN:
+        ergebnis = strategie_check(aktie)
+        if ergebnis:
+            sektor = aktie["sector"]
+            if sektor not in sektor_ergebnisse:
+                sektor_ergebnisse[sektor] = ""
+            sektor_ergebnisse[sektor] += ergebnis
+            print(f"✅ {aktie['name']} analysiert.")
+
+    # Bericht zusammenbauen (Sektor für Sektor)
+    has_content = False
+    for sektor, inhalt in sektor_ergebnisse.items():
+        bericht += f"<b>--- {sektor} ---</b>\n"
+        bericht += inhalt
+        has_content = True
+
+    if has_content:
         telegram_senden(bericht)
+        print("Nachricht gesendet.")
+    else:
+        print("Keine Daten verfügbar.")
