@@ -46,7 +46,7 @@ def format_number(val, suffix=""):
     except:
         return "-"
 
-# --- TEXT-BEWERTUNGSSYSTEM (Keine Emojis) ---
+# --- TEXT-BEWERTUNGSSYSTEM (Details als Text) ---
 
 def bewerte_kgv(kgv):
     if kgv is None: return ""
@@ -88,7 +88,6 @@ def strategie_check(symbol, name):
         sma_50 = hist['Close'].rolling(window=50).mean().iloc[-1]
         sma_200 = hist['Close'].rolling(window=200).mean().iloc[-1]
         
-        # RSI Berechnung
         delta = hist['Close'].diff()
         gewinn = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         verlust = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -96,23 +95,20 @@ def strategie_check(symbol, name):
         rsi = 100 - (100 / (1 + rs))
         rsi_wert = round(float(rsi.iloc[-1]), 1)
 
-        # Ampel Signal (Textbasiert)
-        signal = "HALTEN"
-        signal_icon = "⚪" # Ein einziges Symbol für die schnelle Übersicht oben lassen wir, oder?
+        # --- SIGNAL MIT EMOJIS (Hier ist die Änderung) ---
+        signal = "⚪ HALTEN" # Standard
         
+        # Kaufen
         if rsi_wert < 30: 
-            signal = "KAUFEN (Schnäppchen)"
-            signal_icon = "🟢"
+            signal = "🟢 <b>KAUFEN</b> (Schnäppchen)"
         elif sma_50 > sma_200 and rsi_wert < 50: 
-            signal = "KAUFEN (Trend)"
-            signal_icon = "🟢"
+            signal = "🟢 <b>KAUFEN</b> (Trend)"
             
+        # Verkaufen
         if rsi_wert > 70: 
-            signal = "VERKAUFEN (Überhitzt)"
-            signal_icon = "🔴"
+            signal = "🔴 <b>VERKAUFEN</b> (Überhitzt)"
         elif sma_50 < sma_200: 
-            signal = "VERKAUFEN (Abwärtstrend)"
-            signal_icon = "🔴"
+            signal = "🔴 <b>VERKAUFEN</b> (Abwärtstrend)"
 
         # --- FUNDAMENTALS ---
         info = ticker.info
@@ -125,7 +121,7 @@ def strategie_check(symbol, name):
 
         div_text = f"{round(div_yield * 100, 2)}%" if div_yield else "0%"
         
-        # Text-Bewertungen holen
+        # Bewertungen holen
         t_rsi = bewerte_rsi(rsi_wert)
         t_kgv = bewerte_kgv(kgv)
         t_peg = bewerte_peg(peg)
@@ -134,7 +130,7 @@ def strategie_check(symbol, name):
         # --- OUTPUT DESIGN ---
         text = f"<b>🏢 {name} ({symbol})</b>\n"
         text += f"Preis: {preis} €\n"
-        text += f"Signal: <b>{signal}</b>\n" 
+        text += f"Signal: {signal}\n" # Hier wird das Emoji-Signal eingefügt
         
         if symbol == "BTC-USD":
             text += f"RSI: {rsi_wert} {t_rsi}\n"
@@ -158,8 +154,7 @@ def strategie_check(symbol, name):
 
 if __name__ == "__main__":
     datum = datetime.now().strftime('%d.%m.%Y')
-    bericht = f"📊 <b>Marktbericht {datum}</b> 📊\n"
-    bericht += "<i>(Text-Modus ohne Emojis)</i>\n\n"
+    bericht = f"📊 <b>Marktbericht {datum}</b> 📊\n\n"
     
     erfolg = False
     for symbol, name in MEINE_AKTIEN.items():
